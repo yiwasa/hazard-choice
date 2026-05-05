@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ハザード・チョイス | 地図×防災サバイバルゲーム</title>
+
+    <meta name="description" content="災害リスクや利便性を地図から選択し、迫り来る災害に対して適切な行動を考える防災教育シミュレーションゲームです。">
+
+    <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+    <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
+    <style>
+        body { font-family: sans-serif; background: #f0f2f5; margin: 0; padding: 20px; display: flex; justify-content: center; }
+        .wrapper { display: flex; flex-direction: column; width: 100%; max-width: 800px; background: white; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); overflow: hidden; }
+        .form-section { padding: 30px; text-align: center; }
+        h1 { color: #2c3e50; margin-top: 0; }
+        select { width: 80%; max-width: 400px; padding: 10px; font-size: 1rem; margin: 10px 0; border-radius: 5px; border: 1px solid #ccc; }
+        button { background: #3498db; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 1.2rem; margin-top: 15px; }
+        button:hover { background: #2980b9; }
+        button:disabled { background: #95a5a6; cursor: not-allowed; }
+        /* ★修正：地図の高さを倍の 800px に変更 */
+        #home-map { width: 100%; height: 800px; border-top: 1px solid #eee; background: #e0e0e0; }
+        
+        /* 紹介文のボックスデザイン */
+        .intro-box {
+            background: #fff3cd;
+            border: 1px solid #ffeeba;
+            color: #856404;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: left;
+            font-size: 1rem; /* 基本の文字サイズ */
+            line-height: 1.6;
+        }
+        .intro-box .section-title {
+            font-weight: bold;
+            font-size: 1.3rem; /* 見出しを少し大きく */
+            display: block;
+            margin-bottom: 5px;
+            border-bottom: 1px solid #ffeeba;
+        }
+        .intro-box .content-text {
+            font-size: 1.1rem; /* 本文を少し小さくして読みやすく */
+            display: block;
+            margin-bottom: 15px;
+        }
+        /* クレジット表記用スタイル */
+        footer {
+            margin-top: 40px;
+            padding: 20px;
+            font-size: 0.8rem;
+            color: #7f8c8d;
+            text-align: left;
+            border-top: 1px solid #eee;
+            line-height: 1.6;
+            width: 100%;            /* 幅を広げる */
+            max-width: 800px;       /* wrapperと同じ幅に制限 */
+            box-sizing: border-box; /* パディングを含めた計算にする */
+        }
+        footer a {
+            color: #7f8c8d;
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="wrapper">
+        <div class="form-section">
+            <h1 style="font-size: 1.8rem; margin-bottom: 20px;">ハザード・チョイス<br><span style="font-size: 1.1rem; color: #7f8c8d;">〜ハザードと向き合う地図×防災ゲーム〜</span></h1>
+            
+            <div class="intro-box">
+                <span class="section-title">🌟 ハザードと向き合う地図×防災ゲーム「ハザード・チョイス」とは？</span>
+                <span class="content-text">
+                    災害リスクや利便性といった、居住地を選択する際のリアルな材料から適地を選択し、災害に対して適切な行動をとることで生存確率を高めていくゲームです。場所を決めた後は、AI（Gemini）がその土地特有の災害シナリオを生成し、プレイヤーが行動を選択することで生存確率が大きく変化します。<br>
+                    学校での防災教育で活用することができます。
+                    <a href="document.pdf" target="_blank" style="color: #2980b9; font-weight: bold; text-decoration: underline; margin-left: 5px;">学習指導案はこちら</a>
+                </span>
+
+                <span class="section-title">🚩 ゲームの目的</span>
+                <span class="content-text">
+                    完璧に安全で、かつ便利な場所を見つけるのは難しいかもしれません。大切なのは、<strong>いかにリスクを知り、どう行動するか</strong>。災害リスクと利便性のジレンマをどのように乗り越えられるか、考えてみましょう！
+                </span>
+            </div>
+
+            <p style="font-weight: bold; color: #2c3e50; font-size: 1.5rem">👇 まずは、プレイする地域（市区町村・学校）を選んでください</p>
+            
+            <select id="city-select">
+                <option value="">市区町村を選択...</option>
+            </select>
+
+            <select id="school-select" disabled>
+                <option value="">先に市区町村を選んでください</option>
+            </select>
+
+            <br>
+            <button id="start-btn" onclick="startGame()" disabled>ゲームスタート！</button>
+        </div>
+        
+        <div id="home-map"></div>
+        <footer>
+        <p>ハザードと向き合う地図×防災ゲーム「ハザード・チョイス」では以下のオープンデータを使用しています。
+        <p>
+            <li><a href="https://disaportal.gsi.go.jp/hazardmapportal/hazardmap/copyright/opendata.html" target="_blank">国土交通省　国土地理院　ハザードマップポータルサイト</a>（洪水浸水想定区域・土砂災害警戒区域・津波浸水想定区域）<br></li>
+            <li>国土交通省　国土地理院　地理院地図　淡色地図</li>
+            <li><a href="https://developer.yahoo.co.jp/webapi/map/openlocalplatform/v1/localsearch.html" target="_blank">Yahoo!ローカルサーチAPI</a></li>
+        </p>
+        <p style="margin-top: 10px;">
+            作成者：<a href="https://researchmap.jp/yiwasa" target="_blank">福岡教育大学　岩佐佳哉</a>
+        </p>
+        <p style="margin-top: 15px; border-top: 1px dashed #eee; padding-top: 10px;">
+            &copy; 2026 岩佐研究室 All Rights Reserved.
+        </p>
+    </footer>
+    </div>
+
+    <script>
+        // =========================================================
+        const CITY_PROP_NAME = 'city'; 
+        const SCHOOL_CITY_PROP_NAME = 'city'; 
+        const SCHOOL_NAME_PROP_NAME = 'P29_004'; 
+        // =========================================================
+
+        let allSchools = []; 
+
+        // --- 1. 地図の初期化 ---
+        const map = new maplibregl.Map({
+            container: 'home-map',
+            style: {
+                version: 8,
+                glyphs: "https://gsi-cyberjapan.github.io/optimal_bvmap/glyphs/{fontstack}/{range}.pbf",
+                sources: {
+                    'cities-data': { type: 'geojson', data: 'cities.geojson' },
+                    // ★追加：ラベル表示専用の空データ（あとでJSで中心点を計算して入れます）
+                    'cities-label-data': { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }
+                },
+                layers: [
+                    { 
+                        id: 'background', 
+                        type: 'background', 
+                        paint: { 'background-color': '#eef2f7' } 
+                    },
+                    {
+                        id: 'cities-fill', type: 'fill', source: 'cities-data',
+                        paint: { 'fill-color': '#a3cb38', 'fill-opacity': 0.6 }
+                    },
+                    {
+                        id: 'cities-highlight', type: 'fill', source: 'cities-data',
+                        paint: { 'fill-color': '#e74c3c', 'fill-opacity': 0.8 },
+                        filter: ['==', ['get', CITY_PROP_NAME], ''] 
+                    },
+                    {
+                        id: 'cities-line', type: 'line', source: 'cities-data',
+                        paint: { 'line-color': '#006266', 'line-width': 1.5 }
+                    },
+                    // ★修正：ポリゴンに直接ラベルを貼るのではなく、専用のポイントデータに貼る
+                    {
+                        id: 'cities-label',
+                        type: 'symbol',
+                        source: 'cities-label-data', 
+                        layout: {
+                            'text-field': ['get', CITY_PROP_NAME], 
+                            'text-font': ['Noto Sans CJK JP Regular'],
+                            'text-size': 14,
+                            'text-anchor': 'center'
+                        },
+                        paint: {
+                            'text-color': '#2c3e50',           
+                            'text-halo-color': '#ffffff',      
+                            'text-halo-width': 2
+                        }
+                    }
+                ]
+            },
+            center: [130.600, 33.500], 
+            zoom: 8.8,         
+            minZoom: 8.5,      
+            maxZoom: 11,
+            // ★追加：地図の移動可能範囲を福岡県付近に制限する（南西の端, 北東の端）
+            maxBounds: [[130.0, 32.9], [131.2, 34.1]]
+        });
+
+        // =========================================================
+        // ★修正：MultiPolygonを分解し、最大の図形の中心にラベル用ポイントを作る処理
+        // =========================================================
+        map.on('load', async () => {
+            try {
+                const response = await fetch('cities.geojson');
+                const data = await response.json();
+
+                const labelFeatures = [];
+
+                // 市区町村ごとに、すべてのデータの中で「一番大きい図形」を記憶するための箱を用意
+                const cityLargestPolygons = {};
+
+                data.features.forEach((feature) => {
+                    const name = feature.properties[CITY_PROP_NAME];
+                    if (!name || !feature.geometry) return;
+
+                    if (!cityLargestPolygons[name]) {
+                        cityLargestPolygons[name] = { maxLen: 0, biggestPolygon: null };
+                    }
+
+                    // 図形のタイプ判定して、同じ市町村の中で一番頂点数が多い（大きい）図形を更新していく
+                    if (feature.geometry.type === 'Polygon') {
+                        const ring = feature.geometry.coordinates[0];
+                        if (ring.length > cityLargestPolygons[name].maxLen) {
+                            cityLargestPolygons[name].maxLen = ring.length;
+                            cityLargestPolygons[name].biggestPolygon = ring;
+                        }
+                    } else if (feature.geometry.type === 'MultiPolygon') {
+                        feature.geometry.coordinates.forEach(polygon => {
+                            const ring = polygon[0];
+                            if (ring.length > cityLargestPolygons[name].maxLen) {
+                                cityLargestPolygons[name].maxLen = ring.length;
+                                cityLargestPolygons[name].biggestPolygon = ring;
+                            }
+                        });
+                    }
+                });
+
+                // 市区町村ごとに、見つけ出した一番大きい図形（本土）のド真ん中にピンポイントでラベルを置く
+                Object.keys(cityLargestPolygons).forEach(name => {
+                    const biggestPolygon = cityLargestPolygons[name].biggestPolygon;
+                    if (biggestPolygon) {
+                        const tempFeature = turf.polygon([biggestPolygon]);
+                        const center = turf.centerOfMass(tempFeature);
+
+                        labelFeatures.push({
+                            type: 'Feature',
+                            properties: { [CITY_PROP_NAME]: name },
+                            geometry: center.geometry
+                        });
+                    }
+                });
+
+                // 生成したラベル用データをマップに反映
+                map.getSource('cities-label-data').setData({
+                    type: 'FeatureCollection',
+                    features: labelFeatures
+                });
+                
+            } catch (error) {
+                console.error("市町村データのラベル処理に失敗しました", error);
+            }
+        });
+        // =========================================================
+
+
+        // --- 2. 地図上の市町村をクリックした時の処理 ---
+        map.on('click', 'cities-fill', (e) => {
+            if (e.features.length > 0) {
+                const clickedCityName = e.features[0].properties[CITY_PROP_NAME];
+                if (clickedCityName) {
+                    const citySelect = document.getElementById('city-select');
+                    citySelect.value = clickedCityName;
+                    citySelect.dispatchEvent(new Event('change'));
+                }
+            }
+        });
+
+        map.on('mouseenter', 'cities-fill', () => { map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', 'cities-fill', () => { map.getCanvas().style.cursor = ''; });
+
+        // --- 3. 学校データの読み込み ---
+        document.addEventListener('DOMContentLoaded', async () => {
+            const citySelect = document.getElementById('city-select');
+            try {
+                const response = await fetch('schools.geojson');
+                const data = await response.json();
+                allSchools = data.features; 
+                
+                const cities = new Set();
+                allSchools.forEach(feature => {
+                    const cityName = feature.properties[SCHOOL_CITY_PROP_NAME]; 
+                    if (cityName) cities.add(cityName);
+                });
+
+                citySelect.innerHTML = '<option value="">市町村を選択してください</option>';
+                Array.from(cities).sort().forEach(city => {
+                    const option = document.createElement('option');
+                    option.value = city;
+                    option.textContent = city;
+                    citySelect.appendChild(option);
+                });
+            } catch (error) {
+                console.error("学校データの読み込みエラー", error);
+            }
+        });
+
+        // --- 4. 市町村プルダウンが変更された時の処理（地図ハイライト＋学校絞り込み） ---
+        document.getElementById('city-select').addEventListener('change', function(e) {
+            const selectedCity = e.target.value;
+            const schoolSelect = document.getElementById('school-select');
+            const startBtn = document.getElementById('start-btn');
+            
+            schoolSelect.innerHTML = ''; 
+            startBtn.disabled = true;    
+            
+            if (selectedCity) {
+                map.setFilter('cities-highlight', ['==', ['get', CITY_PROP_NAME], selectedCity]);
+            } else {
+                map.setFilter('cities-highlight', ['==', ['get', CITY_PROP_NAME], '']);
+            }
+
+            if (!selectedCity) {
+                schoolSelect.innerHTML = '<option value="">先に市町村を選んでください</option>';
+                schoolSelect.disabled = true;
+                return;
+            }
+
+            schoolSelect.disabled = false;
+            schoolSelect.innerHTML = '<option value="">学校を選択してください</option>';
+
+            const filteredSchools = allSchools.filter(feature => {
+                return feature.properties[SCHOOL_CITY_PROP_NAME] === selectedCity;
+            });
+
+            filteredSchools.forEach(feature => {
+                const coords = feature.geometry.coordinates;
+                const name = feature.properties[SCHOOL_NAME_PROP_NAME] || "名称不明の学校"; 
+                const option = document.createElement('option');
+                option.value = `${coords[0]},${coords[1]}`;
+                option.textContent = name;
+                schoolSelect.appendChild(option);
+            });
+        });
+
+        document.getElementById('school-select').addEventListener('change', function(e) {
+            document.getElementById('start-btn').disabled = !e.target.value;
+        });
+
+        function startGame() {
+            const select = document.getElementById('school-select');
+            const coords = select.value.split(','); 
+            if (!coords || coords.length !== 2) return;
+            window.location.href = `map.html?lat=${coords[1]}&lng=${coords[0]}`;
+        }
+    </script>
+</body>
+</html>

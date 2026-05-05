@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ハザード・チョイス（MapLibre版）</title>
+    <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+    <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+    <script src="https://unpkg.com/pmtiles@2.11.0/dist/index.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
+    <style>
+        body { margin: 0; padding: 0; display: flex; font-family: 'Helvetica Neue', Arial, sans-serif; }
+        /* ★修正：地図エリアを「相対位置（relative）」にして凡例を浮かせる準備 */
+        #map-container { position: relative; width: 70%; height: 100vh; }
+        #map { width: 100%; height: 100%; }
+        
+        /* ★追加：右上のフロート凡例デザイン */
+        .floating-legend {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            z-index: 1000; /* 地図より上に表示 */
+            background: rgba(255, 255, 255, 0.95);
+            padding: 12px;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            font-size: 0.75rem;
+            max-height: 85vh;
+            overflow-y: auto;
+            width: 150px;
+            color: #333;
+        }
+        .legend-section { margin-bottom: 12px; }
+        .legend-title { font-weight: bold; border-bottom: 1px solid #ccc; margin-bottom: 6px; padding-bottom: 3px; display: block; font-size: 0.8rem; }
+        .legend-item { display: flex; align-items: center; margin-bottom: 4px; }
+        .color-box { width: 14px; height: 14px; margin-right: 8px; border: 1px solid #999; flex-shrink: 0; }
+
+        #sidebar { width: 30%; padding: 20px; background-color: #f8f9fa; box-sizing: border-box; overflow-y: auto; border-left: 1px solid #ddd; }
+        .panel { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        h1 { font-size: 1.4rem; color: #2c3e50; margin-top: 0; }
+        .score-box { text-align: center; background: #eef2f7; padding: 10px; border-radius: 8px; margin-bottom: 15px; }
+        .score-label { font-size: 0.9rem; color: #666; }
+        .score-value { font-size: 2rem; font-weight: bold; color: #2ecc71; }
+        .data-item { margin-bottom: 12px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+        .data-label { font-size: 0.8rem; color: #7f8c8d; font-weight: bold; }
+        .data-value { font-size: 1rem; color: #34495e; }
+        .legend-box { font-size: 0.8rem; background: #fff; padding: 10px; border-radius: 5px; margin-bottom: 15px; border: 1px solid #ddd; }
+        .color-box { width: 12px; height: 12px; display: inline-block; margin-right: 5px; }
+    </style>
+</head>
+<body>
+
+<div id="map-container">
+    <div id="map"></div>
+    
+    <div id="hazard-legend" class="floating-legend">
+        <div class="legend-section">
+            <span class="legend-title">洪水浸水想定区域</span>
+            <div class="legend-item"><div class="color-box" style="background:#D677D6;"></div><span>20m ～</span></div>
+            <div class="legend-item"><div class="color-box" style="background:#F285C9;"></div><span>10m ～ 20m</span></div>
+            <div class="legend-item"><div class="color-box" style="background:#FF9191;"></div><span>5m ～ 10m</span></div>
+            <div class="legend-item"><div class="color-box" style="background:#FFB7B7;"></div><span>3m ～ 5m</span></div>
+            <div class="legend-item"><div class="color-box" style="background:#FFD8C0;"></div><span>0.5m ～ 3m</span></div>
+            <div class="legend-item"><div class="color-box" style="background:#F7F5C9;"></div><span>～ 0.5m</span></div>
+        </div>
+
+        <div class="legend-section">
+            <span class="legend-title">津波浸水想定</span>
+            <div class="legend-item"><div class="color-box" style="background:#D677D6;"></div><span>20m ～</span></div>
+            <div class="legend-item"><div class="color-box" style="background:#F285C9;"></div><span>10m ～ 20m</span></div>
+            <div class="legend-item"><div class="color-box" style="background:#FF9191;"></div><span>5m ～ 10m</span></div>
+            <div class="legend-item"><div class="color-box" style="background:#FFB7B7;"></div><span>3m ～ 5m</span></div>
+            <div class="legend-item"><div class="color-box" style="background:#FFD8C0;"></div><span>0.5m ～ 3m</span></div>
+            <div class="legend-item"><div class="color-box" style="background:#F7F5C9;"></div><span>～ 0.5m</span></div>
+        </div>
+
+        <div class="legend-section">
+            <span class="legend-title">土砂災害</span>
+            <div class="legend-item"><div class="color-box" style="background:#ff0000;"></div><span>特別警戒区域<br>(レッドゾーン)</span></div>
+            <div class="legend-item"><div class="color-box" style="background:#ffff00;"></div><span>警戒区域<br>(イエローゾーン)</span></div>
+        </div>
+
+        <div class="legend-section" style="margin-bottom: 0;">
+            <span class="legend-title">避難施設</span>
+            <div class="legend-item">
+                <div style="width: 18px; height: 18px; background: #27ae60; border: 1px solid #999; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; margin-right: 6px; flex-shrink: 0;">避</div>
+                <span>指定避難所</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="sidebar">
+   <h1>ハザード・チョイス</h1>
+
+    <div class="panel">
+        <div class="data-item">
+            <div class="data-label">🏠 住居タイプを選択</div>
+            <select id="house-type" style="width: 100%; padding: 8px; margin-top: 5px; font-size: 1rem; border-radius: 5px; border: 1px solid #ccc;">
+                <option value="戸建て（1〜2階）">戸建て（1〜2階）</option>
+                <option value="マンション低層階（1〜2階）">マンション低層階（1〜2階）</option>
+                <option value="マンション中高層階（3階以上）">マンション中高層階（3階以上）</option>
+            </select>
+        </div>
+        <div class="data-item">
+            <div class="data-label">🏫 避難所までの距離</div>
+            <div id="evac-display" class="data-value">---</div>
+        </div>
+        <div class="data-item">
+            <div class="data-label">🏪 最寄りのお店</div>
+            <div id="shop-display" class="data-value">---</div>
+        </div>
+        <div class="data-item">
+            <div class="data-label" style="color: #e74c3c;">⚠️ ハザード情報</div>
+            <div id="hazard-display" class="data-value">---</div>
+        </div>
+    </div>
+
+    <div class="panel" style="background: #eef2f7; border: 1px solid #cdd6e0;">
+        <div class="data-label">🤖 Gem入力用データ（テキストをコピーして、Gemに貼り付けてください！）</div>
+        <textarea id="gem-data" rows="5" style="width: 100%; margin-top: 8px; padding: 5px; font-size: 0.9em; border-radius: 5px; border: 1px solid #ccc;" readonly>マス目を選択してください</textarea>
+        <button id="copy-btn" style="width: 100%; padding: 10px; margin-top: 10px; background: #2ecc71; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">📋 テキストをコピーする</button>
+
+        <a href="https://gemini.google.com/gem/17rP72qrZLK87VkQPibJV7BH6c7Wqfe8L?usp=sharing" target="_blank" style="display: block; box-sizing: border-box; width: 100%; padding: 10px; margin-top: 10px; background: #8e44ad; color: white; text-align: center; text-decoration: none; border-radius: 5px; font-weight: bold;">✨ Gemを開く</a>
+    </div>
+
+    <div class="panel" style="background: #fff3cd; border: 1px solid #ffeeba;">
+        <h3 style="margin-top: 0; color: #856404; font-size: 1rem;">🎮 プレイ方法</h3>
+        <ol style="margin: 0; padding-left: 20px; font-size: 0.9rem; color: #856404; line-height: 1.6;">
+            <li>地図上のマス目をクリックして、「自分の住む場所」を決めよう！</li>
+                <ul style="margin-top: 4px; margin-bottom: 4px; padding-left: 20px; list-style-type: disc;">
+                    <li>色のついている場所は災害リスクのある場所です</li>
+                    <li>お店や避難所までの距離で、備蓄や避難のしやすさが変わります</li>
+                </ul>
+            <li>上のリストから「住居タイプ」を選ぼう！</li>
+            <li>緑のボタンを押して、データをコピー！</li>
+            <li>紫のボタンからGemを開き、コピーしたデータを貼り付けてゲームスタート！</li>
+        </ol>
+    </div>
+</div>
+
+<script>
+    // --- PMTiles の設定 ---
+    let protocol = new pmtiles.Protocol();
+    maplibregl.addProtocol("pmtiles", protocol.tile);
+    const PMTILES_URL = "hazard.pmtiles";
+
+    // --- 避難所データの事前読み込み ---
+    let evacCentersData = null;
+    fetch('hinanjo.geojson')
+        .then(response => response.json())
+        .then(data => {
+            evacCentersData = data;
+            console.log("✅ 避難所データを読み込みました。件数:", data.features.length);
+            
+            // マップのスタイルが既に読み込まれていればデータを反映
+            if (typeof map !== 'undefined' && map.isStyleLoaded() && map.getSource('evac-centers-source')) {
+                map.getSource('evac-centers-source').setData(data);
+            }
+        })
+        .catch(err => console.error("❌ 避難所データの読み込みに失敗:", err));
+
+    // --- URLから中心座標を取得し、10x10マス（5km四方）の「ゲーム盤」の範囲を計算 ---
+    const params = new URLSearchParams(window.location.search);
+    const lat = parseFloat(params.get('lat')) || 33.811;
+    const lng = parseFloat(params.get('lng')) || 130.536;
+    
+    // 緯度1度≒111km なので、2.5km ≒ 0.0225度
+    // 経度1度≒91km（福岡県付近）なので、2.5km ≒ 0.0275度
+    // 中心から上下左右に2.5kmずつ（合計5km四方＝10×10マス）のバウンディングボックスを作成
+    const gameBounds = [
+        [lng - 0.04, lat - 0.022], // 南西（左下）の端
+        [lng + 0.04, lat + 0.022]  // 北東（右上）の端
+    ];
+
+    // --- マップの初期化 ---
+    const map = new maplibregl.Map({
+        container: 'map',
+        style: {
+            version: 8,
+            // ★追加：避難所のアイコン（文字）を表示するためのフォント設定
+            glyphs: "https://gsi-cyberjapan.github.io/optimal_bvmap/glyphs/{fontstack}/{range}.pbf",
+            sources: {
+                'gsi-std': {
+                    type: 'raster',
+                    tiles: ['https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png'],
+                    tileSize: 256,
+                    attribution: "国土地理院"
+                },
+                'gsi-hazard-flood': { type: 'raster', tiles: ['https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png'], tileSize: 256 },
+                'gsi-hazard-tsunami': { type: 'raster', tiles: ['https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png'], tileSize: 256 },
+                'gsi-hazard-landslide': { type: 'raster', tiles: ['https://disaportaldata.gsi.go.jp/raster/05_kyukeishakeikaikuiki/{z}/{x}/{y}.png'], tileSize: 256 },
+                'hazard-grid': {
+                    type: 'vector',
+                    url: `pmtiles://${PMTILES_URL}`,
+                },
+                // ★追加：地図上に表示するための避難所データソース
+                'evac-centers-source': {
+                    type: 'geojson',
+                    data: { type: 'FeatureCollection', features: [] } // 最初は空にする
+                }
+            },
+            layers: [
+                { id: 'base-layer', type: 'raster', source: 'gsi-std' },
+                {
+                    id: 'hazard-grid-fill',
+                    type: 'fill',
+                    source: 'hazard-grid',
+                    'source-layer': 'hazard',
+                    paint: {
+                        'fill-color': 'rgba(0, 0, 0, 0)',
+                        'fill-opacity': 0.4
+                        // ※fill-outline-color は削除し、下の専用レイヤで太い線を引きます
+                    }
+                },
+                { id: 'hazard-flood-layer', type: 'raster', source: 'gsi-hazard-flood', paint: { 'raster-opacity': 0.6 } },
+                { id: 'hazard-tsunami-layer', type: 'raster', source: 'gsi-hazard-tsunami', paint: { 'raster-opacity': 0.6 } },
+                { id: 'hazard-landslide-layer', type: 'raster', source: 'gsi-hazard-landslide', paint: { 'raster-opacity': 0.6 } },
+                
+                // ★追加：マス目の「枠線」を太くする専用レイヤ（ハザードの上に重ねることでクッキリ見せます）
+                {
+                    id: 'hazard-grid-line',
+                    type: 'line',
+                    source: 'hazard-grid',
+                    'source-layer': 'hazard',
+                    paint: {
+                        'line-color': '#2c3e50', // 線の色（濃いグレー）
+                        'line-width': 1          // 線の太さ（2や3にすると見やすくなります）
+                    }
+                },
+                
+                // ★追加：避難所のアイコン背景（緑色の丸に白フチ）
+                {
+                    id: 'evac-point',
+                    type: 'circle',
+                    source: 'evac-centers-source',
+                    paint: {
+                        'circle-radius': 12,
+                        'circle-color': '#27ae60', // 緑色
+                        'circle-stroke-width': 2,
+                        'circle-stroke-color': '#ffffff' // 白フチ
+                    }
+                },
+                // ★追加：避難所のマーク（人が走る絵文字）
+                {
+                    id: 'evac-symbol',
+                    type: 'symbol',
+                    source: 'evac-centers-source',
+                    layout: {
+                        'text-field': '避', // ★修正：絵文字はエラーになるため漢字の「避」に変更
+                        'text-font': ['Noto Sans CJK JP Regular'],
+                        'text-size': 16,
+                        'text-allow-overlap': true
+                    },
+                    // ↓ ここを追加します
+                    paint: {
+                        'text-color': '#ffffff' // 文字色を白に設定
+                    }
+                }
+            ]
+        },
+        center: [lng, lat],
+        zoom: 14,
+        minZoom: 13,
+        maxZoom: 16,
+        maxBounds: gameBounds
+    });
+
+    map.on('load', () => {
+        if (evacCentersData) map.getSource('evac-centers-source').setData(evacCentersData);
+    });
+
+    // ★追加: 滑らかなスクロールズームを無効化し、1段階ずつの「カチッとした」ズームに変更
+    map.scrollZoom.disable(); // 標準のマウスホイールズームを無効化
+
+    map.getCanvas().addEventListener('wheel', (e) => {
+        e.preventDefault(); // ホイール操作で画面全体がスクロールしてしまうのを防ぐ
+        if (map.isZooming()) return; // ズームアニメーション中は連続で反応しないようにする（一気にズームするのを防止）
+
+        const currentZoom = map.getZoom();
+        
+        // ★追加: マウスカーソルの現在の画面内座標（ピクセル）を緯度・経度に変換する
+        const mouseLocation = map.unproject([e.offsetX, e.offsetY]);
+
+        if (e.deltaY < 0) {
+            // 上にスクロール ＝ 1段階拡大（around オプションでマウス位置を中心に指定）
+            map.zoomTo(Math.round(currentZoom) + 1, { duration: 250, around: mouseLocation });
+        } else {
+            // 下にスクロール ＝ 1段階縮小（around オプションでマウス位置を中心に指定）
+            map.zoomTo(Math.round(currentZoom) - 1, { duration: 250, around: mouseLocation });
+        }
+    }, { passive: false });
+
+    // Gem用のデータ作成関数
+    let currentHazardText = "";
+    function updateGemData() {
+        const houseType = document.getElementById('house-type').value;
+        const evacText = document.getElementById('evac-display').innerText;
+        const shopText = document.getElementById('shop-display').innerText;
+        
+        const text = `【住環境データ】\n・住居タイプ: ${houseType}\n・避難所までの距離: ${evacText}\n・最寄りのお店: ${shopText}\n・ハザード情報: ${currentHazardText}`;
+        document.getElementById('gem-data').value = text;
+    }
+
+    // 住居タイプを変えた時もテキストを更新する
+    document.getElementById('house-type').addEventListener('change', updateGemData);
+
+    // コピーボタンの処理
+    document.getElementById('copy-btn').addEventListener('click', function() {
+        const textarea = document.getElementById('gem-data');
+        textarea.select();
+        document.execCommand('copy');
+        const originalText = this.innerText;
+        this.innerText = "✅ コピーしました！";
+        this.style.background = "#27ae60";
+        setTimeout(() => {
+            this.innerText = originalText;
+            this.style.background = "#2ecc71";
+        }, 2000);
+    });
+
+    // --- マップクリックイベント ---
+    map.on('click', async (e) => {
+        const features = map.queryRenderedFeatures(e.point, { layers: ['hazard-grid-fill'] });
+        
+        document.getElementById('evac-display').innerText = "📡 検索中...";
+        document.getElementById('shop-display').innerText = "📡 検索中...";
+
+        let hazardInfoHTML = "✅ 安全";
+        currentHazardText = "安全（リスクなし）";
+
+        if (features.length > 0) {
+            const props = features[0].properties;
+            const gridArea = 250000; 
+            const getArea = (key) => parseFloat(props[key]) || 0;
+
+            const maxLandslideRisk = (getArea('A33-24_40P') / gridArea) * 100;
+            const maxTsunamiRisk = (
+                getArea('A40_003_0.01m以上 ～ 0.3m未満 — A40_003_0_area') * 0.1 +
+                getArea('A40_003_0.3m以上 ～ 1m未満 — A40_003_0_area') * 0.4 +
+                getArea('A40_003_1m以上 ～ 2m未満_area') * 0.7 +
+                getArea('A40_003_2m以上 ～ 5m未満_area') * 1.0
+            ) / gridArea * 100;
+
+            const maxFloodRisk = (
+                getArea('A31b_201_1') * 0.1 +
+                getArea('A31b_201_2_clip_area') * 0.4 +
+                getArea('A31b_201_3') * 0.7 +
+                getArea('A31b_201_4') * 1.0 +
+                getArea('A31b_201_5') * 1.0 +
+                getArea('A31b_201_6') * 1.0 
+            ) / gridArea * 100;
+
+            const hasLandslide = maxLandslideRisk > 0 ? "あり" : "なし";
+            const hasTsunami = maxTsunamiRisk > 0 ? "あり" : "なし";
+            const hasFlood = maxFloodRisk > 0 ? "あり" : "なし";
+
+            currentHazardText = `土砂災害[${hasLandslide}] / 津波[${hasTsunami}] / 洪水[${hasFlood}]`;
+
+            hazardInfoHTML = `
+                <div style="font-size: 0.9em; color: #333;">
+                    ⛰️ 土砂災害: <strong>${hasLandslide}</strong><br>
+                    🌊 津波リスク: <strong>${hasTsunami}</strong><br>
+                    🌧️ 洪水リスク: <strong>${hasFlood}</strong>
+                </div>
+            `;
+        }
+
+        const lat = e.lngLat.lat;
+        const lng = e.lngLat.lng;
+        const clientId = "dmVyPTIwMjUwNyZpZD13bUNJNlNEWmwyJmhhc2g9WmpKaFpXUmxORGhqTURGbU4ySTNZZw"; 
+
+        // 距離計算の共通関数
+        const calcDist = (lat1, lng1, lat2, lng2) => {
+            const R = 6371e3; 
+            const φ1 = lat1 * Math.PI/180, φ2 = lat2 * Math.PI/180;
+            const Δφ = (lat2-lat1) * Math.PI/180, Δλ = (lng2-lng1) * Math.PI/180;
+            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        };
+
+        // --- お店情報の取得 (スーパー・コンビニ等: gc=0205001,0205002) ---
+        const shopCallback = 'yShopCb' + Math.round(100000 * Math.random());
+        const shopUrl = `https://map.yahooapis.jp/search/local/V1/localSearch?appid=${clientId}&lat=${lat}&lon=${lng}&dist=3&gc=0205001,0205002&sort=%2Bdist&output=json&callback=${shopCallback}`;
+        const shopRes = await new Promise((resolve) => {
+            window[shopCallback] = (data) => resolve(data);
+            const script = document.createElement('script');
+            script.src = shopUrl;
+            document.head.appendChild(script);
+        });
+
+        if (shopRes.Feature) {
+            const sLat = parseFloat(shopRes.Feature[0].Geometry.Coordinates.split(',')[1]);
+            const sLng = parseFloat(shopRes.Feature[0].Geometry.Coordinates.split(',')[0]);
+            const dist = calcDist(lat, lng, sLat, sLng);
+            const time = Math.ceil((dist * 1.3) / 80);
+            document.getElementById('shop-display').innerText = `${shopRes.Feature[0].Name}（徒歩約${time}分）`;
+        } else {
+            document.getElementById('shop-display').innerText = "近隣にお店なし";
+        }
+
+        // --- 避難所情報の取得 (Turf.jsでGeoJSONから最寄りを計算) ---
+        if (evacCentersData) {
+            // クリックした場所のポイント
+            const clickPoint = turf.point([lng, lat]);
+            
+            // 一番近い避難所を検索
+            const nearest = turf.nearestPoint(clickPoint, evacCentersData);
+            
+            if (nearest) {
+                // Turf.jsはキロメートル単位で距離を返すのでメートルに変換
+                const distanceKm = nearest.properties.distanceToPoint;
+                const distanceMeters = Math.round(distanceKm * 1000);
+                
+                // 徒歩の時間（分）を計算（時速4.8km = 分速80mで計算）
+                const time = Math.ceil(distanceMeters / 80);
+                
+                // 避難所の名前を取得（※GeoJSONの属性名に合わせて 'Name' や 'name' を変更してください）
+                const evacName = nearest.properties.施設・場所名 || nearest.properties.name || nearest.properties.施設名称 || "名称不明の避難所"; 
+
+                document.getElementById('evac-display').innerText = `${evacName}（約${distanceMeters}m / 徒歩約${time}分）`;
+            } else {
+                document.getElementById('evac-display').innerText = "避難所が見つかりません";
+            }
+        } else {
+            document.getElementById('evac-display').innerText = "避難所データ読み込み中...";
+        }
+
+        // 表示更新
+        document.getElementById('hazard-display').innerHTML = hazardInfoHTML;
+        updateGemData(); // Gem用のテキストを生成
+
+        // マス目の色を濃くする
+        if (features.length > 0) {
+            map.setPaintProperty('hazard-grid-fill', 'fill-opacity', [
+                'case', ['==', ['id'], features[0].id], 0.8, 0.4
+            ]);
+        }
+    });
+
+</script>
+</body>
+</html>

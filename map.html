@@ -44,7 +44,7 @@
 
         #sidebar { 
             width: 30%; 
-            padding: 20px; 
+            padding: 20px 20px 80px 20px; /* ★ここを修正：下側の余白を80pxに増やしました */
             background-color: #f8f9fa; 
             display: flex; 
             flex-direction: column; 
@@ -116,8 +116,9 @@
                 <ul style="margin-top: 4px; margin-bottom: 4px; padding-left: 20px; list-style-type: disc;">
                     <li>色のついている場所は災害リスクのある場所です</li>
                     <li>お店や避難所までの距離で、備蓄や避難のしやすさが変わります</li>
+                    <li>マス目を選択すると、各種情報が右下に表示されます</li>
                 </ul>
-            <li>上のリストから「住居タイプ」を選ぼう！</li>
+            <li>リストから「住居タイプ」を選ぼう！</li>
             <li>緑のボタンを押して、データをコピー！</li>
             <li>紫のボタンからGemを開き、コピーしたデータを貼り付けてゲームスタート！</li>
         </ol>
@@ -354,34 +355,61 @@
             const gridArea = 250000; 
             const getArea = (key) => parseFloat(props[key]) || 0;
 
-            const maxLandslideRisk = (getArea('A33-24_40P') / gridArea) * 100;
-            const maxTsunamiRisk = (
-                getArea('A40_003_0.01m以上 ～ 0.3m未満 — A40_003_0_area') * 0.1 +
-                getArea('A40_003_0.3m以上 ～ 1m未満 — A40_003_0_area') * 0.4 +
-                getArea('A40_003_1m以上 ～ 2m未満_area') * 0.7 +
-                getArea('A40_003_2m以上 ～ 5m未満_area') * 1.0
-            ) / gridArea * 100;
+            // --- 土砂災害 ---
+            const landslideArea = getArea('A33-24_40P');
+            const landslideRatio = (landslideArea / gridArea) * 100;
+            const landslideText = landslideRatio > 0 ? `あり（面積割合: ${landslideRatio.toFixed(1)}%）` : "なし";
 
-            const maxFloodRisk = (
-                getArea('A31b_201_1') * 0.1 +
-                getArea('A31b_201_2_clip_area') * 0.4 +
-                getArea('A31b_201_3') * 0.7 +
-                getArea('A31b_201_4') * 1.0 +
-                getArea('A31b_201_5') * 1.0 +
-                getArea('A31b_201_6') * 1.0 
-            ) / gridArea * 100;
+            // --- 津波浸水想定（ランク別に面積割合を計算） ---
+            const tsunamiLayers = [
+                { key: 'A40_003_0.01m以上 ～ 0.3m未満 — A40_003_0_area', label: '0.3m未満' },
+                { key: 'A40_003_0.3m以上 ～ 1m未満 — A40_003_0_area', label: '0.3m～1m' },
+                { key: 'A40_003_1m以上 ～ 2m未満_area', label: '1m～2m' },
+                { key: 'A40_003_2m以上 ～ 5m未満_area', label: '2m～5m' }
+            ];
+            let tsunamiDetails = [];
+            let totalTsunamiArea = 0;
+            tsunamiLayers.forEach(l => {
+                const area = getArea(l.key);
+                if (area > 0) {
+                    const ratio = (area / gridArea) * 100;
+                    tsunamiDetails.push(`${l.label}(${ratio.toFixed(1)}%)`);
+                    totalTsunamiArea += area;
+                }
+            });
+            const tsunamiRatio = (totalTsunamiArea / gridArea) * 100;
+            const tsunamiText = tsunamiRatio > 0 ? `あり（全体: ${tsunamiRatio.toFixed(1)}%、内訳: ${tsunamiDetails.join(' / ')}）` : "なし";
 
-            const hasLandslide = maxLandslideRisk > 0 ? "あり" : "なし";
-            const hasTsunami = maxTsunamiRisk > 0 ? "あり" : "なし";
-            const hasFlood = maxFloodRisk > 0 ? "あり" : "なし";
+            // --- 洪水浸水想定（ランク別に面積割合を計算） ---
+            const floodLayers = [
+                { key: 'A31b_201_1', label: '0.5m未満' },
+                { key: 'A31b_201_2_clip_area', label: '0.5m～3m' },
+                { key: 'A31b_201_3', label: '3m～5m' },
+                { key: 'A31b_201_4', label: '5m～10m' },
+                { key: 'A31b_201_5', label: '10m～20m' },
+                { key: 'A31b_201_6', label: '20m以上' }
+            ];
+            let floodDetails = [];
+            let totalFloodArea = 0;
+            floodLayers.forEach(l => {
+                const area = getArea(l.key);
+                if (area > 0) {
+                    const ratio = (area / gridArea) * 100;
+                    floodDetails.push(`${l.label}(${ratio.toFixed(1)}%)`);
+                    totalFloodArea += area;
+                }
+            });
+            const floodRatio = (totalFloodArea / gridArea) * 100;
+            const floodText = floodRatio > 0 ? `あり（全体: ${floodRatio.toFixed(1)}%、内訳: ${floodDetails.join(' / ')}）` : "なし";
 
-            currentHazardText = `土砂災害[${hasLandslide}] / 津波[${hasTsunami}] / 洪水[${hasFlood}]`;
+            // --- 表示用データ更新 ---
+            currentHazardText = `土砂災害[${landslideText}] \n 津波[${tsunamiText}] \n 洪水[${floodText}]`;
 
             hazardInfoHTML = `
-                <div style="font-size: 0.9em; color: #333;">
-                    ⛰️ 土砂災害: <strong>${hasLandslide}</strong><br>
-                    🌊 津波リスク: <strong>${hasTsunami}</strong><br>
-                    🌧️ 洪水リスク: <strong>${hasFlood}</strong>
+                <div style="font-size: 0.85em; color: #333; line-height: 1.5;">
+                    ⛰️ 土砂災害: <strong>${landslideText}</strong><br>
+                    🌊 津波リスク: <strong>${tsunamiText}</strong><br>
+                    🌧️ 洪水リスク: <strong>${floodText}</strong>
                 </div>
             `;
         }

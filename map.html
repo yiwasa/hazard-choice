@@ -380,27 +380,34 @@
             const tsunamiRatio = (totalTsunamiArea / gridArea) * 100;
             const tsunamiText = tsunamiRatio > 0 ? `あり（全体: ${tsunamiRatio.toFixed(1)}%、内訳: ${tsunamiDetails.join(' / ')}）` : "なし";
 
-            // --- 洪水浸水想定（ランク別に面積割合を計算） ---
+            // --- 洪水浸水想定（深いランクを優先して重なりを補正表示） ---
             const floodLayers = [
-                { key: 'A31b_201_1', label: '0.5m未満' },
-                { key: 'A31b_201_2_clip_area', label: '0.5m～3m' },
-                { key: 'A31b_201_3', label: '3m～5m' },
-                { key: 'A31b_201_4', label: '5m～10m' },
-                { key: 'A31b_201_5', label: '10m～20m' },
-                { key: 'A31b_201_6', label: '20m以上' }
+                { key: 'A31b_201_6_area', label: '20m以上' },
+                { key: 'A31b_201_5_area', label: '10m～20m' },
+                { key: 'A31b_201_4_area', label: '5m～10m' },
+                { key: 'A31b_201_3_area', label: '3m～5m' },
+                { key: 'A31b_201_2_area', label: '0.5m～3m' },
+                { key: 'A31b_201_1_area', label: '0.5m未満' }
             ];
+            
             let floodDetails = [];
-            let totalFloodArea = 0;
+            let remainingArea = gridArea; // 1マスの最大面積（250,000㎡）
+            
+            // 深い浸水から順番に面積を計算し、はみ出しを防ぐ
             floodLayers.forEach(l => {
-                const area = getArea(l.key);
-                if (area > 0) {
-                    const ratio = (area / gridArea) * 100;
-                    floodDetails.push(`${l.label}(${ratio.toFixed(1)}%)`);
-                    totalFloodArea += area;
+                let area = getArea(l.key);
+                if (area > 0 && remainingArea > 0) {
+                    // 残りの面積より大きければ、上限を残りの面積に合わせる（浅い面積を削る）
+                    if (area > remainingArea) {
+                        area = remainingArea;
+                    }
+                    // 表示順を「浅い順」に整えるため、配列の先頭に追加していく
+                    floodDetails.unshift(`${l.label}(${area.toFixed(1)}㎡)`);
+                    remainingArea -= area;
                 }
             });
-            const floodRatio = (totalFloodArea / gridArea) * 100;
-            const floodText = floodRatio > 0 ? `あり（全体: ${floodRatio.toFixed(1)}%、内訳: ${floodDetails.join(' / ')}）` : "なし";
+
+            const floodText = floodDetails.length > 0 ? `あり（内訳: ${floodDetails.join(' / ')}）` : "なし";
 
             // --- 表示用データ更新 ---
             currentHazardText = `土砂災害[${landslideText}] \n 津波[${tsunamiText}] \n 洪水[${floodText}]`;
